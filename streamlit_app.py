@@ -42,9 +42,7 @@ STARTWERTE = {
     "branche_wahl": ALLE_BRANCHEN, "funktion": "Einkäufer/in", "eigener_beruf_an": False, "eigener_beruf": "",
     "region": "Nordwestschweiz", "firmengroesse": "50 bis 249",
     "erfahrung": 5, "ausbildung": "Lehre (EFZ)", "pensum": 100,
-    "lohn_monat": 6500, "dreizehnter": True,
-    "zufriedenheit": 3, "stress": 3, "lernen": 3, "weiterbildung": False, "aufstieg": False,
-    "ehrlich": False,
+    "lohn_monat": 6500, "dreizehnter": True, "ehrlich": False,
 }
 for _k, _v in STARTWERTE.items():
     st.session_state[_k] = st.session_state[_k] if _k in st.session_state else _v
@@ -438,28 +436,27 @@ def alle_eintraege():
         con.close()
     if df.empty:
         return pd.DataFrame(columns=["id"] + SPALTEN + ["lohn_100"])
-    for spalte in ("weiterbildung", "aufstieg", "testdaten"):
-        df[spalte] = df[spalte].astype(bool)
+    df["testdaten"] = df["testdaten"].fillna(False).astype(bool)
     df["lohn_100"] = df["lohn_jahr"].astype(float) / df["pensum"].astype(float) * 100
     return df
 
 
-TESTDATEN_PRO_BERUF = 16
+TESTDATEN_PRO_BERUF = 80
 
 
 def testdaten_anlegen():
     """Legt erfundene Testdaten an, damit jeder Beruf sofort Vergleichswerte hat.
-    Fehlen für einen Beruf noch Testdaten (z.B. weil er neu in der Liste ist), werden sie ergänzt."""
+    Hat ein Beruf weniger als TESTDATEN_PRO_BERUF Testwerte (z.B. weil er neu ist), wird aufgefüllt."""
     df = alle_eintraege()
-    vorhanden = set(df.loc[df["testdaten"], "funktion"]) if not df.empty else set()
-    fehlend = [b for b in ALLE_BERUFE if b not in vorhanden]
-    if not fehlend:
-        return
+    anzahl = df.loc[df["testdaten"], "funktion"].value_counts() if not df.empty else pd.Series(dtype=int)
     zeilen = []
-    for beruf in fehlend:
+    for beruf in ALLE_BERUFE:
+        schon_da = int(anzahl.get(beruf, 0))
+        if schon_da >= TESTDATEN_PRO_BERUF:
+            continue
         branche, basis = BERUF_INFO[beruf]
-        zufall = random.Random(zlib.crc32(beruf.encode("utf-8")))
-        for _ in range(TESTDATEN_PRO_BERUF):
+        zufall = random.Random(zlib.crc32(beruf.encode("utf-8")) + schon_da)
+        for _ in range(TESTDATEN_PRO_BERUF - schon_da):
             region = zufall.choices(list(REGIONEN), weights=[22, 14, 16, 18, 10, 14, 6])[0]
             erfahrung = min(int(zufall.expovariate(1 / 9)), 40)
             pensum = zufall.choices([100, 90, 80, 60], weights=[70, 10, 15, 5])[0]
@@ -468,10 +465,11 @@ def testdaten_anlegen():
                 "funktion": beruf, "branche": branche, "region": region, "erfahrung": erfahrung,
                 "ausbildung": zufall.choice(AUSBILDUNG[:4]), "pensum": pensum,
                 "lohn_jahr": round(lohn_100 * pensum / 100, -2), "firmengroesse": zufall.choice(FIRMENGROESSE),
-                "zufriedenheit": zufall.randint(1, 5), "stress": zufall.randint(1, 5),
-                "lernen": zufall.randint(1, 5), "weiterbildung": zufall.random() < 0.5,
-                "aufstieg": zufall.random() < 0.45, "testdaten": True,
+                "zufriedenheit": None, "stress": None, "lernen": None,
+                "weiterbildung": None, "aufstieg": None, "testdaten": True,
             })
+    if not zeilen:
+        return
     zeilen_speichern(zeilen)
     alle_eintraege.clear()
 
@@ -583,21 +581,6 @@ with st.container(key="card_eingaben"):
             st.markdown(f'<div class="jahreslohn"><span>Dein Jahreslohn</span><b>{chf(lohn_jahr)}</b></div>',
                         unsafe_allow_html=True)
 
-        st.markdown('<hr class="trenner">', unsafe_allow_html=True)
-        titel("🙂", "Wie geht es dir im Job?", "1 = gar nicht, 5 = sehr")
-        g1, g2, g3 = st.columns(3, gap="medium")
-        with g1:
-            zufriedenheit = st.slider("Wie zufrieden bist du?", 1, 5, key="zufriedenheit")
-        with g2:
-            stress = st.slider("Wie gestresst bist du?", 1, 5, key="stress")
-        with g3:
-            lernen = st.slider("Wie viel Neues lernst du?", 1, 5, key="lernen")
-        c1, c2 = st.columns(2, gap="medium")
-        with c1:
-            weiterbildung = st.checkbox("Mein Arbeitgeber unterstützt Weiterbildungen", key="weiterbildung")
-        with c2:
-            aufstieg = st.checkbox("Ich habe realistische Aufstiegschancen", key="aufstieg")
-
     st.markdown('<hr class="trenner">', unsafe_allow_html=True)
     ehrlich = st.checkbox("Meine Angaben stimmen. Ehrliche Daten helfen allen.", key="ehrlich")
 
@@ -611,8 +594,9 @@ with st.container(key="card_eingaben"):
         "funktion": funktion, "branche": branche, "region": region,
         "erfahrung": int(erfahrung), "ausbildung": ausbildung, "pensum": int(pensum),
         "lohn_jahr": float(lohn_jahr), "firmengroesse": firmengroesse,
-        "zufriedenheit": int(zufriedenheit), "stress": int(stress), "lernen": int(lernen),
-        "weiterbildung": bool(weiterbildung), "aufstieg": bool(aufstieg), "testdaten": False,
+        # Die Fragen zur Zufriedenheit wurden entfernt, die Spalten bleiben für später leer
+        "zufriedenheit": None, "stress": None, "lernen": None,
+        "weiterbildung": None, "aufstieg": None, "testdaten": False,
     }
 
     def _teilen():
@@ -660,25 +644,26 @@ else:
         p25, p75 = gruppe["lohn_100"].quantile([0.25, 0.75])
         perzentil = (gruppe["lohn_100"] < mein_100).mean() * 100
         differenz = mein_100 - median
+        perzentil = min(perzentil, 99)
         ring_text = f"{perzentil:.0f}%"
 
-        # Punkte 0 bis 100 je Bereich
-        p_lohn = perzentil
-        p_entw = (ich["lernen"] - 1) / 4 * 50 + (25 if ich["weiterbildung"] else 0) + (25 if ich["aufstieg"] else 0)
-        p_zufr = (ich["zufriedenheit"] - 1) / 4 * 60 + (5 - ich["stress"]) / 4 * 40
-        gesamt = (p_lohn + p_entw + p_zufr) / 3
-
-        g_text, g_klasse, _, _ = stufe(gesamt, 40, 65)
+        l_text, l_klasse, _, _ = stufe(perzentil, 30, 60)
         v_icon, v_titel, v_text = {
-            "ok": ("✅", "Du stehst beruflich gut da", "Lohn, Entwicklung und Zufriedenheit passen grösstenteils."),
-            "knapp": ("⚠️", "Solide, aber mit Luft nach oben", "Ein paar Punkte könntest du gezielt verbessern."),
-            "nein": ("❗", "Hier lohnt es sich, etwas zu ändern", "Schau dir die Tipps unten genau an."),
-        }[g_klasse]
+            "ok": ("✅", "Dein Lohn ist gut", "Du verdienst mehr als die meisten in deinem Beruf."),
+            "knapp": ("⚠️", "Dein Lohn ist im Mittelfeld", "Mit dem richtigen Vorgehen liegt noch mehr drin."),
+            "nein": ("❗", "Dein Lohn liegt unter dem Markt", "Es lohnt sich, das anzusprechen. Schau dir die Tipps an."),
+        }[l_klasse]
         st.markdown(
-            f'<div class="verdict {g_klasse}"><span class="vi">{v_icon}</span>'
+            f'<div class="verdict {l_klasse}"><span class="vi">{v_icon}</span>'
             f'<div><div class="vt">{v_titel}</div><div class="vx">{v_text}</div></div>'
-            f'<div class="vp"><div class="vl">Gesamtwert</div><div class="vv">{gesamt:.0f} / 100</div></div></div>',
+            f'<div class="vp"><div class="vl">Du verdienst mehr als</div><div class="vv">{perzentil:.0f}%</div></div></div>',
             unsafe_allow_html=True)
+
+        # Vergleichsdaten für Ampel und Tipps
+        vgl = andere.copy()
+        vgl["stufe"] = vgl["erfahrung"].astype(int).apply(erfahrungsstufe)
+        gleicher_beruf = vgl[vgl["funktion"] == ich["funktion"]]
+        meine_stufe = erfahrungsstufe(ich["erfahrung"])
 
         # Kennzahlen
         with st.container(key="kpis"):
@@ -722,18 +707,29 @@ else:
 
         with rechts:
             with st.container(key="card_ampel"):
-                titel("🚦", "Deine Ampel", "Drei Bereiche, die zusammen deinen Stand zeigen")
-                bereiche = [
-                    ("💰 Lohn", p_lohn, stufe(p_lohn, 30, 60), "im Vergleich zu ähnlichen Jobs"),
-                    ("📈 Entwicklung", p_entw, stufe(p_entw, 40, 70), "Lernen, Weiterbildung, Aufstieg"),
-                    ("🙂 Zufriedenheit", p_zufr, stufe(p_zufr, 40, 70), "Zufriedenheit und Stress"),
+                titel("🚦", "Deine Ampel", "So schneidet dein Lohn in verschiedenen Vergleichen ab")
+                vergleiche = [
+                    ("📍 Gleicher Beruf, deine Region", gleicher_beruf[gleicher_beruf["region"] == ich["region"]]),
+                    ("🇨🇭 Gleicher Beruf, ganze Schweiz", gleicher_beruf),
+                    ("⏳ Gleicher Beruf, ähnliche Erfahrung", gleicher_beruf[gleicher_beruf["stufe"] == meine_stufe]),
+                    ("🏢 Gleicher Beruf, gleiche Firmengrösse",
+                     gleicher_beruf[gleicher_beruf["firmengroesse"] == ich["firmengroesse"]]),
+                    ("🏭 Deine ganze Branche", vgl[vgl["branche"] == ich["branche"]]),
                 ]
-                html = "".join(
-                    f'<div class="hb"><div class="top"><span>{name}</span>'
-                    f'<b style="color:{farbe}">{text}<small>{wert:.0f}/100</small></b></div>'
-                    f'<div class="trk"><div style="width:{max(wert, 4):.0f}%;background:{verlauf}"></div></div>'
-                    f'<div class="hint">{hinweis}</div></div>'
-                    for name, wert, (text, _, verlauf, farbe), hinweis in bereiche)
+                html = ""
+                for name, g in vergleiche:
+                    if len(g) >= MIN_GRUPPE:
+                        wert = min((g["lohn_100"] < mein_100).mean() * 100, 99)
+                        text, _, verlauf, farbe = stufe(wert, 30, 60)
+                        html += (f'<div class="hb"><div class="top"><span>{name}</span>'
+                                 f'<b style="color:{farbe}">{text}<small>mehr als {wert:.0f}%</small></b></div>'
+                                 f'<div class="trk"><div style="width:{max(wert, 4):.0f}%;background:{verlauf}"></div></div>'
+                                 f'<div class="hint">Mittelwert {chf(g["lohn_100"].median())} · {len(g)} Einträge</div></div>')
+                    else:
+                        html += (f'<div class="hb"><div class="top"><span>{name}</span>'
+                                 f'<b style="color:#94A3B8">offen<small>{len(g)} von {MIN_GRUPPE}</small></b></div>'
+                                 f'<div class="trk"><div style="width:0%"></div></div>'
+                                 f'<div class="hint">Noch zu wenige Einträge für diesen Vergleich</div></div>')
                 st.markdown(f'<div class="hbars">{html}</div>', unsafe_allow_html=True)
 
         # Tipps
@@ -748,23 +744,30 @@ else:
             else:
                 tipps.append((False, "Lohn", "Gut verhandelt",
                               "Du liegst über dem Mittelwert. Achte darauf, dass dein Lohn jedes Jahr mitwächst."))
-            if not ich["aufstieg"]:
-                tipps.append((differenz < 0, "Entwicklung", "Aufstieg ansprechen",
-                              "Ohne Aufstiegschancen bleibt der Lohn oft stehen. Frag nach mehr Verantwortung "
-                              "oder schau dich nach Stellen mit Perspektive um."))
-            if not ich["weiterbildung"]:
-                tipps.append((False, "Entwicklung", "Weiterbildung einfordern",
-                              "Frag deinen Arbeitgeber, ob er eine Weiterbildung mitfinanziert. "
-                              "Das steigert deinen Marktwert."))
-            if ich["stress"] >= 4:
-                tipps.append((False, "Belastung", "Stress im Blick behalten",
-                              "Dein Stress ist hoch. Prüfe, ob Lohn und Belastung zusammenpassen."))
-            if ich["lernen"] <= 2:
-                tipps.append((False, "Lernen", "Neue Aufgaben suchen",
-                              "Du lernst wenig Neues. Ein neues Projekt oder eine neue Aufgabe hält dich fit."))
-            if len(tipps) == 1 and differenz >= 0:
-                tipps.append((False, "Weiter so", "Marktwert halten",
-                              "Mach in 6 Monaten wieder einen StandCheck, damit du deine Entwicklung siehst."))
+            # Region: wo verdient man im gleichen Beruf mehr?
+            nach_region = gleicher_beruf.groupby("region")["lohn_100"].agg(["count", "median"])
+            nach_region = nach_region[(nach_region["count"] >= MIN_GRUPPE) & (nach_region.index != ich["region"])]
+            if not nach_region.empty and nach_region["median"].max() > mein_100:
+                beste = nach_region["median"].idxmax()
+                tipps.append((False, "Region", f"In {beste} verdient man mehr",
+                              f"Im gleichen Beruf liegt der Mittelwert in {beste} bei {chf(nach_region['median'].max())}, "
+                              f"rund {chf(nach_region['median'].max() - mein_100)} mehr als du."))
+            # Perspektive: was verdient man mit mehr Erfahrung?
+            stufen = ["0 bis 4 Jahre", "5 bis 9 Jahre", "10 bis 19 Jahre", "20 Jahre und mehr"]
+            if meine_stufe != stufen[-1]:
+                naechste = stufen[stufen.index(meine_stufe) + 1]
+                g = gleicher_beruf[gleicher_beruf["stufe"] == naechste]
+                if len(g) >= MIN_GRUPPE and g["lohn_100"].median() > mein_100:
+                    tipps.append((False, "Perspektive", "So wächst dein Lohn",
+                                  f"Mit {naechste} Erfahrung verdient man in deinem Beruf im Mittel "
+                                  f"{chf(g['lohn_100'].median())}. Achte darauf, dass dein Lohn mitwächst."))
+            if ich["ausbildung"] in ("Lehre (EFZ)", "Andere"):
+                tipps.append((False, "Weiterbildung", "Marktwert steigern",
+                              "Ein Fachausweis oder eine höhere Fachschule kann deinen Lohn deutlich steigern. "
+                              "Frag, ob dein Arbeitgeber die Weiterbildung mitfinanziert."))
+            if len(tipps) < 3:
+                tipps.append((False, "Weiter so", "Regelmässig vergleichen",
+                              "Mach in 6 Monaten wieder einen StandCheck, damit du siehst, ob dein Lohn mithält."))
             for start in range(0, len(tipps), 3):
                 spalten = st.columns(3, gap="medium")
                 for spalte, (wichtig, rang, name, text) in zip(spalten, tipps[start:start + 3]):
