@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from berufe import ALLE_BERUFE, BERUF_INFO, BERUFE, BRANCHEN
+from zuordnung import aehnlichste_berufe
 
 st.set_page_config(page_title="StandCheck · Wo stehst du beruflich?", page_icon="🚦", layout="wide")
 
@@ -228,6 +229,15 @@ html { font-size: 17px; }
     box-shadow: 0 8px 20px -8px rgba(14,165,164,.7); margin-top: 2px; }
 .jahreslohn span { display: block; font-size: .8rem; color: #CCFBF1; font-weight: 600; }
 .jahreslohn b { font-size: 1.45rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* ---------- Schnitt pro Beruf ---------- */
+.schnitt { display: flex; align-items: center; gap: 14px; margin: 6px 0 4px; padding: 14px 18px; border-radius: 16px;
+    background: linear-gradient(120deg, #ECFEFF, #EEF2FF); border: 1.5px solid #A5F3FC; }
+.schnitt .si { font-size: 1.6rem; }
+.schnitt .st { font-weight: 700; color: #0F172A; font-size: 1rem; }
+.schnitt .st b { color: #0F766E; font-size: 1.15rem; }
+.schnitt .sz { color: #475569; font-size: .85rem; margin-top: 2px; }
+.schnitt .sz b { color: #0F172A; }
 
 /* ---------- Ergebnis Schild ---------- */
 .verdict { display: flex; align-items: center; gap: 18px; border-radius: 20px; padding: 20px 24px; margin: 4px 0 16px; }
@@ -473,7 +483,7 @@ def alle_eintraege():
 
 
 TESTDATEN_PRO_BERUF = 80
-TESTDATEN_VERSION = "3"   # erhöhen, wenn sich die Art der Testdaten ändert (alte Testdaten werden dann ersetzt)
+TESTDATEN_VERSION = "4"   # erhöhen, wenn sich die Art der Testdaten ändert (alte Testdaten werden dann ersetzt)
 
 
 def alte_testdaten_ersetzen():
@@ -526,6 +536,15 @@ def testdaten_anlegen():
     alle_eintraege.clear()
 
 
+def vergleichs_funktion(df, funktion, vergleichsberuf=None):
+    """Eigener Beruf mit genug Einträgen: dieser. Sonst der ähnlichste Beruf aus der Liste."""
+    if funktion in BERUF_INFO or not vergleichsberuf:
+        return funktion
+    if not df.empty and (df["funktion"] == funktion).sum() >= MIN_GRUPPE:
+        return funktion
+    return vergleichsberuf
+
+
 def vergleichsgruppe(df, ich):
     """Sucht die genaueste Gruppe mit genug Einträgen: gleicher Beruf und gleiches Alter zuerst.
     Gibt es zu wenige Einträge, wird die Gruppe schrittweise grösser."""
@@ -534,22 +553,24 @@ def vergleichsgruppe(df, ich):
     df = df.copy()
     df["altersgruppe"] = df["alter_jahre"].apply(altersgruppe)
     ag = altersgruppe(ich.get("alter_jahre"))
-    beruf = df["funktion"] == ich["funktion"]
+    name = vergleichs_funktion(df, ich["funktion"], ich.get("vergleichsberuf"))
+    zusatz = "" if name == ich["funktion"] else " (ähnlicher Beruf)"
+    beruf = df["funktion"] == name
     branche = df["branche"] == ich["branche"]
     versuche = []
     if ag:
         alter = df["altersgruppe"] == ag
         versuche += [
-            (f"{ich['funktion']} · {ich['region']} · Alter {ag}", beruf & (df["region"] == ich["region"]) & alter),
-            (f"{ich['funktion']} · ganze Schweiz · Alter {ag}", beruf & alter),
+            (f"{name}{zusatz} · {ich['region']} · Alter {ag}", beruf & (df["region"] == ich["region"]) & alter),
+            (f"{name}{zusatz} · ganze Schweiz · Alter {ag}", beruf & alter),
         ]
     if ag:
         a = int(ich["alter_jahre"])
         for breite in (7, 10):   # zuerst höchstens 7, dann 10 Jahre jünger oder älter
             von, bis = max(a - breite, 15), a + breite
             fenster = df["alter_jahre"].astype(float).between(von, bis)
-            versuche.append((f"{ich['funktion']} · ganze Schweiz · Alter {von} bis {bis}", beruf & fenster))
-    versuche.append((f"{ich['funktion']} · ganze Schweiz · alle Altersgruppen", beruf))
+            versuche.append((f"{name}{zusatz} · ganze Schweiz · Alter {von} bis {bis}", beruf & fenster))
+    versuche.append((f"{name}{zusatz} · ganze Schweiz · alle Altersgruppen", beruf))
     if ag:
         versuche.append((f"Branche {ich['branche']} · Alter {ag}", branche & (df["altersgruppe"] == ag)))
     versuche.append((f"Branche {ich['branche']} · alle Altersgruppen", branche))
@@ -615,27 +636,48 @@ with st.container(key="card_eingaben"):
     with eingaben:
         titel("💼", "Dein Job", "Damit wir dich mit den richtigen Leuten vergleichen")
         eigener_beruf_an = st.session_state.get("eigener_beruf_an", False)
+        vergleichsberuf = None
         j1, j2, j3, j0 = st.columns(4, gap="medium")
         with j1:
-            branche_wahl = st.selectbox("Branche", [ALLE_BRANCHEN] + BRANCHEN, key="branche_wahl")
+            if eigener_beruf_an:
+                eigener_beruf = st.text_input("Dein Beruf", key="eigener_beruf",
+                                              placeholder="z.B. Demand Planner, Leiterin Einkauf")
+                funktion = " ".join(eigener_beruf.split())
+            else:
+                branche_wahl = st.selectbox("Branche", [ALLE_BRANCHEN] + BRANCHEN, key="branche_wahl")
         with j2:
             if eigener_beruf_an:
-                eigener_beruf = st.text_input("Dein Beruf", key="eigener_beruf", placeholder="z.B. Orgelbauer/in")
-                funktion = " ".join(eigener_beruf.split())
+                rangliste = aehnlichste_berufe(funktion, anzahl=len(ALLE_BERUFE)) if funktion else []
+                if rangliste:
+                    # Neue Eingabe: den passendsten Beruf vorauswählen
+                    if st.session_state.get("_letzte_eingabe") != funktion:
+                        st.session_state["_letzte_eingabe"] = funktion
+                        st.session_state["vergleichsberuf"] = rangliste[0][0]
+                    vergleichsberuf = st.selectbox(
+                        "Am ähnlichsten ist", [b for b, _ in rangliste], key="vergleichsberuf",
+                        help="Mit diesem Beruf wirst du verglichen, bis genug Leute deinen Beruf eingetragen haben.")
+                else:
+                    st.selectbox("Am ähnlichsten ist", ["Zuerst deinen Beruf eintippen"], disabled=True)
             else:
                 berufe_auswahl = (ALLE_BERUFE if branche_wahl == ALLE_BRANCHEN
                                   else sorted((b for b, _ in BERUFE[branche_wahl]), key=str.casefold))
                 if st.session_state.get("funktion") not in berufe_auswahl:
                     st.session_state["funktion"] = berufe_auswahl[0]   # Beruf passt nicht zur gewählten Branche
                 funktion = st.selectbox("Beruf", berufe_auswahl, key="funktion",
-                                        help="Tippe ins Feld, um nach deinem Beruf zu suchen.")
+                                        help="Tippe ins Feld, um zu suchen, auf Deutsch oder Englisch.")
         with j3:
             region = st.selectbox("Region", list(REGIONEN), key="region")
         with j0:
             firmengroesse = st.selectbox("Mitarbeitende in der Firma", FIRMENGROESSE, key="firmengroesse")
-        st.checkbox("Mein Beruf ist nicht in der Liste", key="eigener_beruf_an")
-        if eigener_beruf_an and branche_wahl == ALLE_BRANCHEN:
-            st.caption("Wähle bitte noch die Branche, die am besten zu deinem Beruf passt.")
+        st.checkbox("Mein Beruf ist nicht in der Liste, ich tippe ihn selbst ein", key="eigener_beruf_an")
+        if eigener_beruf_an and rangliste:
+            treffer = dict(rangliste)[vergleichsberuf]
+            if treffer >= 0.8:
+                st.caption(f"✅ «{funktion}» passt sehr gut zu «{vergleichsberuf}».")
+            elif treffer >= 0.5:
+                st.caption(f"👍 «{funktion}» passt ungefähr zu «{vergleichsberuf}». Du kannst oben einen anderen wählen.")
+            else:
+                st.caption("🤔 Kein sehr ähnlicher Beruf gefunden. Wähle oben den Beruf, der am besten passt.")
         j7, j4, j5, j6 = st.columns(4, gap="medium")
         with j7:
             alter_jahre = st.number_input("Alter", min_value=15, max_value=70, step=1, key="alter_jahre")
@@ -645,6 +687,24 @@ with st.container(key="card_eingaben"):
             ausbildung = st.selectbox("Höchste Ausbildung", AUSBILDUNG, key="ausbildung")
         with j6:
             pensum = st.select_slider("Pensum in %", options=list(range(10, 101, 10)), key="pensum")
+
+        # Schnitt für diesen Beruf (eigener Beruf: sobald genug Einträge, sonst der ähnlichste)
+        schnitt_beruf = vergleichs_funktion(daten, funktion, vergleichsberuf) if funktion else None
+        if schnitt_beruf:
+            g = daten[daten["funktion"] == schnitt_beruf]
+            if len(g) >= MIN_GRUPPE:
+                schnitt = round(g["lohn_100"].median(), -3)
+                im_alter = ""
+                ag = altersgruppe(alter_jahre)
+                g_alter = g[g["alter_jahre"].apply(altersgruppe) == ag]
+                if len(g_alter) >= MIN_GRUPPE:
+                    im_alter = (f'<div class="sz">In deinem Alter ({ag}): etwa '
+                                f'<b>{chf(round(g_alter["lohn_100"].median(), -3))}</b></div>')
+                st.markdown(
+                    f'<div class="schnitt"><span class="si">📊</span><div><div class="st">Schnitt bei {schnitt_beruf}: '
+                    f'etwa <b>{chf(schnitt)}</b> im Jahr</div><div class="sz">Das sind rund '
+                    f'{chf(round(schnitt / 13, -2))} pro Monat bei 13 Monatslöhnen, Pensum 100%</div>{im_alter}</div></div>',
+                    unsafe_allow_html=True)
 
         st.markdown('<hr class="trenner">', unsafe_allow_html=True)
         titel("💰", "Dein Lohn", "Brutto, so wie er auf der Lohnabrechnung steht, ohne Bonus")
@@ -665,8 +725,10 @@ with st.container(key="card_eingaben"):
 
     if funktion in BERUF_INFO:
         branche = BERUF_INFO[funktion][0]
+    elif vergleichsberuf in BERUF_INFO:
+        branche = BERUF_INFO[vergleichsberuf][0]
     else:
-        branche = branche_wahl if branche_wahl != ALLE_BRANCHEN else ""
+        branche = ""
     beruf_ok = bool(funktion) and bool(branche)
     alter_ok = erfahrung <= alter_jahre - 14   # Berufserfahrung frühestens ab etwa 14 Jahren
 
@@ -677,13 +739,14 @@ with st.container(key="card_eingaben"):
         # Die Fragen zur Zufriedenheit wurden entfernt, die Spalten bleiben für später leer
         "zufriedenheit": None, "stress": None, "lernen": None,
         "weiterbildung": None, "aufstieg": None, "testdaten": False,
+        "vergleichsberuf": vergleichsberuf if funktion not in BERUF_INFO else None,   # nur für den Vergleich
     }
 
     def _teilen():
         eintrag = dict(aktuell)
         if st.session_state.get("ich_id") is None:
             # Pro Besuch wird nur einmal gespeichert, spätere Änderungen aktualisieren nur den Check
-            st.session_state["ich_id"] = zeilen_speichern([eintrag])
+            st.session_state["ich_id"] = zeilen_speichern([{k: eintrag.get(k) for k in SPALTEN}])
             alle_eintraege.clear()
         st.session_state["ich"] = eintrag
 
@@ -693,7 +756,7 @@ with st.container(key="card_eingaben"):
     if not alter_ok:
         st.caption("Die Jahre Berufserfahrung passen nicht zu deinem Alter. Bitte prüfe beide Felder.")
     elif not beruf_ok:
-        st.caption("Bitte gib deinen Beruf ein und wähle die passende Branche.")
+        st.caption("Bitte tippe deinen Beruf ein und wähle den ähnlichsten Beruf aus.")
     elif not ehrlich:
         st.caption("Bitte zuerst bestätigen, dass deine Angaben stimmen.")
     elif ich is not None and ich != aktuell:
@@ -744,7 +807,7 @@ else:
         # Vergleichsdaten für Ampel und Tipps
         vgl = andere.copy()
         vgl["stufe"] = vgl["erfahrung"].astype(int).apply(erfahrungsstufe)
-        gleicher_beruf = vgl[vgl["funktion"] == ich["funktion"]]
+        gleicher_beruf = vgl[vgl["funktion"] == vergleichs_funktion(vgl, ich["funktion"], ich.get("vergleichsberuf"))]
         meine_stufe = erfahrungsstufe(ich["erfahrung"])
         meine_altersgruppe = altersgruppe(ich.get("alter_jahre"))
 
