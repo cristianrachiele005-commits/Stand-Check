@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 StandCheck
-Wo stehe ich beruflich? Lohn anonym teilen, mit ähnlichen Funktionen vergleichen
+Wo stehe ich beruflich? Lohn anonym teilen, mit dem gleichen Beruf vergleichen
 und sehen, was gut ist und was besser sein müsste.
 
 Speicher:
@@ -12,9 +12,13 @@ import random
 import sqlite3
 from pathlib import Path
 
+import zlib
+
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+from berufe import ALLE_BERUFE, BERUF_INFO, BERUFE, BRANCHEN
 
 st.set_page_config(page_title="StandCheck · Wo stehst du beruflich?", page_icon="🚦", layout="wide")
 
@@ -23,19 +27,7 @@ st.set_page_config(page_title="StandCheck · Wo stehst du beruflich?", page_icon
 # ---------------------------------------------------------------------------
 MIN_GRUPPE = 10  # so viele Einträge braucht es mindestens, bevor ein Vergleich angezeigt wird
 
-FUNKTIONEN = {
-    # Funktion: (Branche, Basislohn pro Jahr bei 100% ohne Erfahrung) – Basislohn nur für Testdaten
-    "Einkäufer/in": ("Industrie", 72000),
-    "Sachbearbeiter/in kaufmännisch": ("Dienstleistung", 62000),
-    "Projektleiter/in": ("Industrie", 92000),
-    "Logistiker/in": ("Logistik", 56000),
-    "Polymechaniker/in": ("Industrie", 62000),
-    "Software Entwickler/in": ("Informatik", 90000),
-    "Pflegefachperson": ("Gesundheit", 72000),
-    "Detailhandelsfachperson": ("Handel", 50000),
-    "Buchhalter/in": ("Dienstleistung", 70000),
-    "Marketing Fachperson": ("Dienstleistung", 72000),
-}
+ALLE_BRANCHEN = "Alle Branchen"
 REGIONEN = {
     "Zürich": 1.08, "Genferseeregion": 1.06, "Nordwestschweiz": 1.02, "Espace Mittelland": 0.98,
     "Zentralschweiz": 1.00, "Ostschweiz": 0.95, "Tessin": 0.86,
@@ -47,7 +39,8 @@ SPALTEN = ["funktion", "branche", "region", "erfahrung", "ausbildung", "pensum",
 
 # Startwerte der Eingaben (in st.session_state, damit nichts verloren geht)
 STARTWERTE = {
-    "funktion": "Einkäufer/in", "region": "Nordwestschweiz", "firmengroesse": "50 bis 249",
+    "branche_wahl": ALLE_BRANCHEN, "funktion": "Einkäufer/in", "eigener_beruf_an": False, "eigener_beruf": "",
+    "region": "Nordwestschweiz", "firmengroesse": "50 bis 249",
     "erfahrung": 5, "ausbildung": "Lehre (EFZ)", "pensum": 100,
     "lohn_monat": 6500, "dreizehnter": True,
     "zufriedenheit": 3, "stress": 3, "lernen": 3, "weiterbildung": False, "aufstieg": False,
@@ -451,27 +444,34 @@ def alle_eintraege():
     return df
 
 
+TESTDATEN_PRO_BERUF = 16
+
+
 def testdaten_anlegen():
-    """Legt einmalig erfundene Testdaten an, damit man die App sofort ausprobieren kann."""
+    """Legt erfundene Testdaten an, damit jeder Beruf sofort Vergleichswerte hat.
+    Fehlen für einen Beruf noch Testdaten (z.B. weil er neu in der Liste ist), werden sie ergänzt."""
     df = alle_eintraege()
-    if not df.empty and df["testdaten"].any():
+    vorhanden = set(df.loc[df["testdaten"], "funktion"]) if not df.empty else set()
+    fehlend = [b for b in ALLE_BERUFE if b not in vorhanden]
+    if not fehlend:
         return
-    zufall = random.Random(42)
     zeilen = []
-    for _ in range(600):
-        funktion = zufall.choice(list(FUNKTIONEN))
-        branche, basis = FUNKTIONEN[funktion]
-        region = zufall.choices(list(REGIONEN), weights=[22, 14, 16, 18, 10, 14, 6])[0]
-        erfahrung = min(int(zufall.expovariate(1 / 9)), 40)
-        pensum = zufall.choices([100, 90, 80, 60], weights=[70, 10, 15, 5])[0]
-        lohn_100 = basis * REGIONEN[region] * (1 + 0.025 * min(erfahrung, 20)) * zufall.gauss(1, 0.09)
-        zeilen.append({
-            "funktion": funktion, "branche": branche, "region": region, "erfahrung": erfahrung,
-            "ausbildung": zufall.choice(AUSBILDUNG[:4]), "pensum": pensum,
-            "lohn_jahr": round(lohn_100 * pensum / 100, -2), "firmengroesse": zufall.choice(FIRMENGROESSE),
-            "zufriedenheit": zufall.randint(1, 5), "stress": zufall.randint(1, 5), "lernen": zufall.randint(1, 5),
-            "weiterbildung": zufall.random() < 0.5, "aufstieg": zufall.random() < 0.45, "testdaten": True,
-        })
+    for beruf in fehlend:
+        branche, basis = BERUF_INFO[beruf]
+        zufall = random.Random(zlib.crc32(beruf.encode("utf-8")))
+        for _ in range(TESTDATEN_PRO_BERUF):
+            region = zufall.choices(list(REGIONEN), weights=[22, 14, 16, 18, 10, 14, 6])[0]
+            erfahrung = min(int(zufall.expovariate(1 / 9)), 40)
+            pensum = zufall.choices([100, 90, 80, 60], weights=[70, 10, 15, 5])[0]
+            lohn_100 = basis * REGIONEN[region] * (1 + 0.025 * min(erfahrung, 20)) * zufall.gauss(1, 0.09)
+            zeilen.append({
+                "funktion": beruf, "branche": branche, "region": region, "erfahrung": erfahrung,
+                "ausbildung": zufall.choice(AUSBILDUNG[:4]), "pensum": pensum,
+                "lohn_jahr": round(lohn_100 * pensum / 100, -2), "firmengroesse": zufall.choice(FIRMENGROESSE),
+                "zufriedenheit": zufall.randint(1, 5), "stress": zufall.randint(1, 5),
+                "lernen": zufall.randint(1, 5), "weiterbildung": zufall.random() < 0.5,
+                "aufstieg": zufall.random() < 0.45, "testdaten": True,
+            })
     zeilen_speichern(zeilen)
     alle_eintraege.clear()
 
@@ -536,13 +536,31 @@ with st.container(key="card_eingaben"):
     eingaben = st.container(key="eingaben")
     with eingaben:
         titel("💼", "Dein Job", "Damit wir dich mit den richtigen Leuten vergleichen")
-        j1, j2, j3 = st.columns(3, gap="medium")
+        eigener_beruf_an = st.session_state.get("eigener_beruf_an", False)
+        j1, j2, j3, j0 = st.columns(4, gap="medium")
         with j1:
-            funktion = st.selectbox("Funktion", list(FUNKTIONEN), key="funktion")
+            branche_wahl = st.selectbox(
+                "Branche", [ALLE_BRANCHEN] + BRANCHEN, key="branche_wahl",
+                format_func=lambda b: f"{b} ({len(ALLE_BERUFE)} Berufe)" if b == ALLE_BRANCHEN
+                else f"{b} ({len(BERUFE[b])})")
         with j2:
-            region = st.selectbox("Region", list(REGIONEN), key="region")
+            if eigener_beruf_an:
+                eigener_beruf = st.text_input("Dein Beruf", key="eigener_beruf", placeholder="z.B. Orgelbauer/in")
+                funktion = " ".join(eigener_beruf.split())
+            else:
+                berufe_auswahl = (ALLE_BERUFE if branche_wahl == ALLE_BRANCHEN
+                                  else sorted((b for b, _ in BERUFE[branche_wahl]), key=str.casefold))
+                if st.session_state.get("funktion") not in berufe_auswahl:
+                    st.session_state["funktion"] = berufe_auswahl[0]   # Beruf passt nicht zur gewählten Branche
+                funktion = st.selectbox("Beruf", berufe_auswahl, key="funktion",
+                                        help="Tippe ins Feld, um nach deinem Beruf zu suchen.")
         with j3:
+            region = st.selectbox("Region", list(REGIONEN), key="region")
+        with j0:
             firmengroesse = st.selectbox("Mitarbeitende in der Firma", FIRMENGROESSE, key="firmengroesse")
+        st.checkbox("Mein Beruf ist nicht in der Liste", key="eigener_beruf_an")
+        if eigener_beruf_an and branche_wahl == ALLE_BRANCHEN:
+            st.caption("Wähle bitte noch die Branche, die am besten zu deinem Beruf passt.")
         j4, j5, j6 = st.columns(3, gap="medium")
         with j4:
             erfahrung = st.number_input("Jahre Berufserfahrung", min_value=0, max_value=50, step=1, key="erfahrung")
@@ -583,8 +601,14 @@ with st.container(key="card_eingaben"):
     st.markdown('<hr class="trenner">', unsafe_allow_html=True)
     ehrlich = st.checkbox("Meine Angaben stimmen. Ehrliche Daten helfen allen.", key="ehrlich")
 
+    if funktion in BERUF_INFO:
+        branche = BERUF_INFO[funktion][0]
+    else:
+        branche = branche_wahl if branche_wahl != ALLE_BRANCHEN else ""
+    beruf_ok = bool(funktion) and bool(branche)
+
     aktuell = {
-        "funktion": funktion, "branche": FUNKTIONEN[funktion][0], "region": region,
+        "funktion": funktion, "branche": branche, "region": region,
         "erfahrung": int(erfahrung), "ausbildung": ausbildung, "pensum": int(pensum),
         "lohn_jahr": float(lohn_jahr), "firmengroesse": firmengroesse,
         "zufriedenheit": int(zufriedenheit), "stress": int(stress), "lernen": int(lernen),
@@ -601,8 +625,10 @@ with st.container(key="card_eingaben"):
 
     knopf_text = "Lohn anonym teilen und Vergleich sehen" if ich is None else "Check mit neuen Angaben aktualisieren"
     with st.container(key="teilen_knopf"):
-        st.button(knopf_text, use_container_width=True, disabled=not ehrlich, on_click=_teilen)
-    if not ehrlich:
+        st.button(knopf_text, use_container_width=True, disabled=not (ehrlich and beruf_ok), on_click=_teilen)
+    if not beruf_ok:
+        st.caption("Bitte gib deinen Beruf ein und wähle die passende Branche.")
+    elif not ehrlich:
         st.caption("Bitte zuerst bestätigen, dass deine Angaben stimmen.")
     elif ich is not None and ich != aktuell:
         st.caption("Du hast etwas geändert. Klicke auf den Knopf, damit dein Check neu berechnet wird.")
@@ -627,7 +653,7 @@ else:
     beschreibung, gruppe = vergleichsgruppe(andere, ich)
 
     if gruppe is None:
-        st.warning("Für deine Funktion gibt es noch zu wenige Einträge. Schau bald wieder vorbei.")
+        st.warning("Für deinen Beruf gibt es noch zu wenige Einträge. Schau bald wieder vorbei.")
     else:
         mein_100 = ich["lohn_jahr"] / ich["pensum"] * 100
         median = gruppe["lohn_100"].median()
@@ -752,14 +778,14 @@ else:
         # Kurzfassung in der Seitenleiste
         st.sidebar.divider()
         st.sidebar.subheader("Dein Ergebnis")
-        st.sidebar.markdown(f"Funktion: **{ich['funktion']}**  \nRegion: **{ich['region']}**  \n"
+        st.sidebar.markdown(f"Beruf: **{ich['funktion']}**  \nRegion: **{ich['region']}**  \n"
                             f"Mittelwert Gruppe: **{chf(median)}**")
         st.sidebar.metric("Dein Lohn (100%)", chf(mein_100), f"{differenz / median * 100:+.0f}% zum Mittelwert")
 
 # ---------------------------------------------------------------------------
 # 3. Lohnübersicht
 # ---------------------------------------------------------------------------
-abschnitt(3, "Lohnübersicht", "alle Funktionen auf einen Blick")
+abschnitt(3, "Lohnübersicht", "alle Berufe auf einen Blick")
 if ich is None:
     st.markdown(
         '<div class="gesperrt"><span class="i">🔒</span><div><div class="t">Lohnübersicht gesperrt</div>'
@@ -768,8 +794,16 @@ if ich is None:
 else:
     with st.container(key="card_uebersicht"):
         titel("🗂️", "Was verdienen andere?", "Mittelwert pro Jahr bei 100% Pensum, mit der Spanne der mittleren Hälfte")
-        regionen_auswahl = st.multiselect("Regionen", list(REGIONEN), default=list(REGIONEN))
+        u1, u2 = st.columns([1, 2], gap="medium")
+        with u1:
+            branchen_liste = [ALLE_BRANCHEN] + BRANCHEN
+            u_branche = st.selectbox("Branche", branchen_liste,
+                                     index=branchen_liste.index(ich["branche"]) if ich["branche"] in branchen_liste else 0)
+        with u2:
+            regionen_auswahl = st.multiselect("Regionen", list(REGIONEN), default=list(REGIONEN))
         auswahl = daten[daten["region"].isin(regionen_auswahl)]
+        if u_branche != ALLE_BRANCHEN:
+            auswahl = auswahl[auswahl["branche"] == u_branche]
         if auswahl.empty:
             st.warning("Bitte mindestens eine Region wählen.")
         else:
@@ -806,9 +840,10 @@ with hero_platz:
         f'<div class="hero"><div class="left">'
         f'<span class="badge"><span class="dot"></span>Anonym · Schweiz · gratis</span>'
         f'<div class="title">Wo stehst du <span>beruflich?</span></div>'
-        f'<div class="text">Teile deinen Lohn anonym, vergleiche dich mit Leuten in ähnlicher Funktion '
+        f'<div class="text">Teile deinen Lohn anonym, vergleiche dich mit Leuten im gleichen Beruf '
         f'und erfahre, was gut ist und was besser sein müsste.</div>'
-        f'<div class="chips"><span class="chip">👥 <b>{len(daten)}</b> Einträge</span>'
+        f'<div class="chips"><span class="chip">💼 <b>{len(ALLE_BERUFE)}</b> Berufe</span>'
+        f'<span class="chip">👥 <b>{len(daten)}</b> Einträge</span>'
         f'<span class="chip">🔒 ab <b>{MIN_GRUPPE}</b> Einträgen sichtbar</span>'
         f'<span class="chip">⏱️ <b>2 Minuten</b></span></div>'
         f'</div>'
