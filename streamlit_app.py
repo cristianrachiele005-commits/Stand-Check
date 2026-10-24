@@ -35,14 +35,15 @@ REGIONEN = {
 AUSBILDUNG = ["Lehre (EFZ)", "Höhere Fachschule / Fachausweis", "Fachhochschule", "Universität", "Andere"]
 FIRMENGROESSE = ["1 bis 9", "10 bis 49", "50 bis 249", "250 und mehr"]
 SPALTEN = ["funktion", "branche", "region", "erfahrung", "ausbildung", "pensum", "lohn_jahr",
-           "firmengroesse", "zufriedenheit", "stress", "lernen", "weiterbildung", "aufstieg", "testdaten"]
+           "firmengroesse", "zufriedenheit", "stress", "lernen", "weiterbildung", "aufstieg", "testdaten",
+           "alter_jahre"]
 
 # Startwerte der Eingaben (in st.session_state, damit nichts verloren geht)
 STARTWERTE = {
     "branche_wahl": ALLE_BRANCHEN, "funktion": "Einkäufer/in", "eigener_beruf_an": False, "eigener_beruf": "",
     "region": "Nordwestschweiz", "firmengroesse": "50 bis 249",
     "erfahrung": 5, "ausbildung": "Lehre (EFZ)", "pensum": 100,
-    "lohn_monat": 6500, "dreizehnter": True, "ehrlich": False,
+    "lohn_monat": 6500, "dreizehnter": True, "ehrlich": False, "alter_jahre": 30,
 }
 for _k, _v in STARTWERTE.items():
     st.session_state[_k] = st.session_state[_k] if _k in st.session_state else _v
@@ -357,6 +358,21 @@ def stufe(wert, rot_bis, gelb_bis):
     return "gut", "ok", "linear-gradient(90deg, #2DD4BF, #10B981)", "#059669"
 
 
+def altersgruppe(alter):
+    if alter is None or pd.isna(alter):
+        return None
+    alter = int(alter)
+    if alter < 25:
+        return "unter 25"
+    if alter < 35:
+        return "25 bis 34"
+    if alter < 45:
+        return "35 bis 44"
+    if alter < 55:
+        return "45 bis 54"
+    return "55 und älter"
+
+
 def erfahrungsstufe(jahre):
     if jahre < 5:
         return "0 bis 4 Jahre"
@@ -391,8 +407,15 @@ def sqlite_verbindung():
             funktion TEXT, branche TEXT, region TEXT, erfahrung INTEGER, ausbildung TEXT,
             pensum INTEGER, lohn_jahr REAL, firmengroesse TEXT, zufriedenheit INTEGER,
             stress INTEGER, lernen INTEGER, weiterbildung INTEGER, aufstieg INTEGER,
-            testdaten INTEGER DEFAULT 0
+            testdaten INTEGER DEFAULT 0, alter_jahre INTEGER
         )""")
+    spalten = [z[1] for z in con.execute("PRAGMA table_info(loehne)")]
+    if "alter_jahre" not in spalten:
+        con.execute("ALTER TABLE loehne ADD COLUMN alter_jahre INTEGER")
+    # Ältere Testdaten ohne Alter: grob aus der Erfahrung schätzen (nur erfundene Werte)
+    con.execute("UPDATE loehne SET alter_jahre = MIN(erfahrung + 19 + (id % 7), 64) "
+                "WHERE testdaten = 1 AND alter_jahre IS NULL")
+    con.commit()
     return con
 
 
@@ -402,7 +425,13 @@ def zeilen_speichern(zeilen):
     if sb is not None:
         letzte_id = None
         for start in range(0, len(zeilen), 200):
-            antwort = sb.table("loehne").insert(zeilen[start:start + 200]).execute()
+            teil = zeilen[start:start + 200]
+            try:
+                antwort = sb.table("loehne").insert(teil).execute()
+            except Exception:
+                # Tabelle noch ohne Spalte alter_jahre (siehe supabase_tabelle.sql)
+                antwort = sb.table("loehne").insert(
+                    [{k: v for k, v in z.items() if k != "alter_jahre"} for z in teil]).execute()
             if antwort.data:
                 letzte_id = antwort.data[-1].get("id")
         return letzte_id
@@ -437,6 +466,8 @@ def alle_eintraege():
     if df.empty:
         return pd.DataFrame(columns=["id"] + SPALTEN + ["lohn_100"])
     df["testdaten"] = df["testdaten"].fillna(False).astype(bool)
+    if "alter_jahre" not in df.columns:
+        df["alter_jahre"] = None
     df["lohn_100"] = df["lohn_jahr"].astype(float) / df["pensum"].astype(float) * 100
     return df
 
@@ -460,13 +491,17 @@ def testdaten_anlegen():
             region = zufall.choices(list(REGIONEN), weights=[22, 14, 16, 18, 10, 14, 6])[0]
             erfahrung = min(int(zufall.expovariate(1 / 9)), 40)
             pensum = zufall.choices([100, 90, 80, 60], weights=[70, 10, 15, 5])[0]
+            ausbildung = zufall.choice(AUSBILDUNG[:4])
+            startalter = {"Lehre (EFZ)": 19, "Höhere Fachschule / Fachausweis": 22,
+                          "Fachhochschule": 24, "Universität": 26}[ausbildung]
+            alter = min(startalter + erfahrung + zufall.randint(0, 4), 64)
             lohn_100 = basis * REGIONEN[region] * (1 + 0.025 * min(erfahrung, 20)) * zufall.gauss(1, 0.09)
             zeilen.append({
                 "funktion": beruf, "branche": branche, "region": region, "erfahrung": erfahrung,
-                "ausbildung": zufall.choice(AUSBILDUNG[:4]), "pensum": pensum,
+                "ausbildung": ausbildung, "pensum": pensum,
                 "lohn_jahr": round(lohn_100 * pensum / 100, -2), "firmengroesse": zufall.choice(FIRMENGROESSE),
                 "zufriedenheit": None, "stress": None, "lernen": None,
-                "weiterbildung": None, "aufstieg": None, "testdaten": True,
+                "weiterbildung": None, "aufstieg": None, "testdaten": True, "alter_jahre": alter,
             })
     if not zeilen:
         return
@@ -556,7 +591,9 @@ with st.container(key="card_eingaben"):
         st.checkbox("Mein Beruf ist nicht in der Liste", key="eigener_beruf_an")
         if eigener_beruf_an and branche_wahl == ALLE_BRANCHEN:
             st.caption("Wähle bitte noch die Branche, die am besten zu deinem Beruf passt.")
-        j4, j5, j6 = st.columns(3, gap="medium")
+        j7, j4, j5, j6 = st.columns(4, gap="medium")
+        with j7:
+            alter_jahre = st.number_input("Alter", min_value=15, max_value=70, step=1, key="alter_jahre")
         with j4:
             erfahrung = st.number_input("Jahre Berufserfahrung", min_value=0, max_value=50, step=1, key="erfahrung")
         with j5:
@@ -586,10 +623,11 @@ with st.container(key="card_eingaben"):
     else:
         branche = branche_wahl if branche_wahl != ALLE_BRANCHEN else ""
     beruf_ok = bool(funktion) and bool(branche)
+    alter_ok = erfahrung <= alter_jahre - 14   # Berufserfahrung frühestens ab etwa 14 Jahren
 
     aktuell = {
         "funktion": funktion, "branche": branche, "region": region,
-        "erfahrung": int(erfahrung), "ausbildung": ausbildung, "pensum": int(pensum),
+        "erfahrung": int(erfahrung), "alter_jahre": int(alter_jahre), "ausbildung": ausbildung, "pensum": int(pensum),
         "lohn_jahr": float(lohn_jahr), "firmengroesse": firmengroesse,
         # Die Fragen zur Zufriedenheit wurden entfernt, die Spalten bleiben für später leer
         "zufriedenheit": None, "stress": None, "lernen": None,
@@ -606,8 +644,10 @@ with st.container(key="card_eingaben"):
 
     knopf_text = "Lohn anonym teilen und Vergleich sehen" if ich is None else "Check mit neuen Angaben aktualisieren"
     with st.container(key="teilen_knopf"):
-        st.button(knopf_text, use_container_width=True, disabled=not (ehrlich and beruf_ok), on_click=_teilen)
-    if not beruf_ok:
+        st.button(knopf_text, use_container_width=True, disabled=not (ehrlich and beruf_ok and alter_ok), on_click=_teilen)
+    if not alter_ok:
+        st.caption("Die Jahre Berufserfahrung passen nicht zu deinem Alter. Bitte prüfe beide Felder.")
+    elif not beruf_ok:
         st.caption("Bitte gib deinen Beruf ein und wähle die passende Branche.")
     elif not ehrlich:
         st.caption("Bitte zuerst bestätigen, dass deine Angaben stimmen.")
@@ -661,6 +701,7 @@ else:
         vgl["stufe"] = vgl["erfahrung"].astype(int).apply(erfahrungsstufe)
         gleicher_beruf = vgl[vgl["funktion"] == ich["funktion"]]
         meine_stufe = erfahrungsstufe(ich["erfahrung"])
+        meine_altersgruppe = altersgruppe(ich.get("alter_jahre"))
 
         # Kennzahlen
         with st.container(key="kpis"):
@@ -709,6 +750,10 @@ else:
                     ("📍 Gleicher Beruf, deine Region", gleicher_beruf[gleicher_beruf["region"] == ich["region"]]),
                     ("🇨🇭 Gleicher Beruf, ganze Schweiz", gleicher_beruf),
                     ("⏳ Gleicher Beruf, ähnliche Erfahrung", gleicher_beruf[gleicher_beruf["stufe"] == meine_stufe]),
+                    (f"🎂 Gleicher Beruf, Alter {meine_altersgruppe}" if meine_altersgruppe
+                     else "🎂 Gleicher Beruf, gleiches Alter",
+                     gleicher_beruf[gleicher_beruf["alter_jahre"].apply(altersgruppe) == meine_altersgruppe]
+                     if meine_altersgruppe else gleicher_beruf.iloc[0:0]),
                     ("🏢 Gleicher Beruf, gleiche Firmengrösse",
                      gleicher_beruf[gleicher_beruf["firmengroesse"] == ich["firmengroesse"]]),
                     ("🏭 Deine ganze Branche", vgl[vgl["branche"] == ich["branche"]]),
@@ -779,6 +824,7 @@ else:
         st.sidebar.divider()
         st.sidebar.subheader("Dein Ergebnis")
         st.sidebar.markdown(f"Beruf: **{ich['funktion']}**  \nRegion: **{ich['region']}**  \n"
+                            f"Alter: **{ich.get('alter_jahre', '')}**  \n"
                             f"Mittelwert Gruppe: **{chf(median)}**")
         st.sidebar.metric("Dein Lohn (100%)", chf(mein_100), f"{differenz / median * 100:+.0f}% zum Mittelwert")
 
