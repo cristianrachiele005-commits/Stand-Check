@@ -473,11 +473,28 @@ def alle_eintraege():
 
 
 TESTDATEN_PRO_BERUF = 80
+TESTDATEN_VERSION = "3"   # erhöhen, wenn sich die Art der Testdaten ändert (alte Testdaten werden dann ersetzt)
+
+
+def alte_testdaten_ersetzen():
+    """Nur lokal (SQLite): Testdaten einer älteren Version löschen, damit sie neu erzeugt werden."""
+    if supabase_client() is not None:
+        return
+    con = sqlite_verbindung()
+    con.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
+    zeile = con.execute("SELECT v FROM meta WHERE k = 'testdaten_version'").fetchone()
+    if zeile is None or zeile[0] != TESTDATEN_VERSION:
+        con.execute("DELETE FROM loehne WHERE testdaten = 1")
+        con.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('testdaten_version', ?)", (TESTDATEN_VERSION,))
+        con.commit()
+        alle_eintraege.clear()
+    con.close()
 
 
 def testdaten_anlegen():
     """Legt erfundene Testdaten an, damit jeder Beruf sofort Vergleichswerte hat.
     Hat ein Beruf weniger als TESTDATEN_PRO_BERUF Testwerte (z.B. weil er neu ist), wird aufgefüllt."""
+    alte_testdaten_ersetzen()
     df = alle_eintraege()
     anzahl = df.loc[df["testdaten"], "funktion"].value_counts() if not df.empty else pd.Series(dtype=int)
     zeilen = []
@@ -489,12 +506,12 @@ def testdaten_anlegen():
         zufall = random.Random(zlib.crc32(beruf.encode("utf-8")) + schon_da)
         for _ in range(TESTDATEN_PRO_BERUF - schon_da):
             region = zufall.choices(list(REGIONEN), weights=[22, 14, 16, 18, 10, 14, 6])[0]
-            erfahrung = min(int(zufall.expovariate(1 / 9)), 40)
             pensum = zufall.choices([100, 90, 80, 60], weights=[70, 10, 15, 5])[0]
             ausbildung = zufall.choice(AUSBILDUNG[:4])
-            startalter = {"Lehre (EFZ)": 19, "Höhere Fachschule / Fachausweis": 22,
+            startalter = {"Lehre (EFZ)": 18, "Höhere Fachschule / Fachausweis": 22,
                           "Fachhochschule": 24, "Universität": 26}[ausbildung]
-            alter = min(startalter + erfahrung + zufall.randint(0, 4), 64)
+            alter = zufall.randint(startalter, 64)        # Alter gleichmässig verteilt
+            erfahrung = max(0, alter - startalter - zufall.randint(0, 3))
             lohn_100 = basis * REGIONEN[region] * (1 + 0.025 * min(erfahrung, 20)) * zufall.gauss(1, 0.09)
             zeilen.append({
                 "funktion": beruf, "branche": branche, "region": region, "erfahrung": erfahrung,
@@ -510,9 +527,37 @@ def testdaten_anlegen():
 
 
 def vergleichsgruppe(df, ich):
-    """Sucht die genaueste Gruppe mit genug Einträgen. Wird sonst schrittweise grösser."""
+    """Sucht die genaueste Gruppe mit genug Einträgen: gleicher Beruf und gleiches Alter zuerst.
+    Gibt es zu wenige Einträge, wird die Gruppe schrittweise grösser."""
     if df.empty:
         return None, None
+    df = df.copy()
+    df["altersgruppe"] = df["alter_jahre"].apply(altersgruppe)
+    ag = altersgruppe(ich.get("alter_jahre"))
+    beruf = df["funktion"] == ich["funktion"]
+    branche = df["branche"] == ich["branche"]
+    versuche = []
+    if ag:
+        alter = df["altersgruppe"] == ag
+        versuche += [
+            (f"{ich['funktion']} · {ich['region']} · Alter {ag}", beruf & (df["region"] == ich["region"]) & alter),
+            (f"{ich['funktion']} · ganze Schweiz · Alter {ag}", beruf & alter),
+        ]
+    if ag:
+        a = int(ich["alter_jahre"])
+        for breite in (7, 10):   # zuerst höchstens 7, dann 10 Jahre jünger oder älter
+            von, bis = max(a - breite, 15), a + breite
+            fenster = df["alter_jahre"].astype(float).between(von, bis)
+            versuche.append((f"{ich['funktion']} · ganze Schweiz · Alter {von} bis {bis}", beruf & fenster))
+    versuche.append((f"{ich['funktion']} · ganze Schweiz · alle Altersgruppen", beruf))
+    if ag:
+        versuche.append((f"Branche {ich['branche']} · Alter {ag}", branche & (df["altersgruppe"] == ag)))
+    versuche.append((f"Branche {ich['branche']} · alle Altersgruppen", branche))
+    for beschreibung, maske in versuche:
+        gruppe = df[maske]
+        if len(gruppe) >= MIN_GRUPPE:
+            return beschreibung, gruppe
+    return None, None
     df = df.copy()
     df["stufe"] = df["erfahrung"].astype(int).apply(erfahrungsstufe)
     s = erfahrungsstufe(ich["erfahrung"])
@@ -722,7 +767,7 @@ else:
         links, rechts = st.columns([1.25, 1], gap="medium")
         with links:
             with st.container(key="card_vergleich"):
-                titel("📊", "Dein Lohn im Vergleich", f"Verglichen mit: {beschreibung}. Löhne auf 100% umgerechnet.")
+                titel("📊", "Dein Lohn im Vergleich", f"Verglichen mit: {beschreibung}. Löhne auf 100% Pensum umgerechnet.")
                 verteilung = alt.Chart(gruppe).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6,
                                                         color="#2DD4BF", opacity=.85).encode(
                     x=alt.X("lohn_100:Q", bin=alt.Bin(maxbins=18), title="Jahreslohn bei 100% (CHF)",
@@ -794,14 +839,14 @@ else:
                 tipps.append((False, "Region", f"In {beste} verdient man mehr",
                               f"Im gleichen Beruf liegt der Mittelwert in {beste} bei {chf(nach_region['median'].max())}, "
                               f"rund {chf(nach_region['median'].max() - mein_100)} mehr als du."))
-            # Perspektive: was verdient man mit mehr Erfahrung?
-            stufen = ["0 bis 4 Jahre", "5 bis 9 Jahre", "10 bis 19 Jahre", "20 Jahre und mehr"]
-            if meine_stufe != stufen[-1]:
-                naechste = stufen[stufen.index(meine_stufe) + 1]
-                g = gleicher_beruf[gleicher_beruf["stufe"] == naechste]
+            # Perspektive: was verdient man im gleichen Beruf ein paar Jahre älter?
+            gruppen = ["unter 25", "25 bis 34", "35 bis 44", "45 bis 54", "55 und älter"]
+            if meine_altersgruppe and meine_altersgruppe != gruppen[-1]:
+                naechste = gruppen[gruppen.index(meine_altersgruppe) + 1]
+                g = gleicher_beruf[gleicher_beruf["alter_jahre"].apply(altersgruppe) == naechste]
                 if len(g) >= MIN_GRUPPE and g["lohn_100"].median() > mein_100:
                     tipps.append((False, "Perspektive", "So wächst dein Lohn",
-                                  f"Mit {naechste} Erfahrung verdient man in deinem Beruf im Mittel "
+                                  f"Mit {naechste} Jahren verdient man in deinem Beruf im Mittel "
                                   f"{chf(g['lohn_100'].median())}. Achte darauf, dass dein Lohn mitwächst."))
             if ich["ausbildung"] in ("Lehre (EFZ)", "Andere"):
                 tipps.append((False, "Weiterbildung", "Marktwert steigern",
