@@ -19,6 +19,8 @@ BERUFE = {
         ("Lebensmitteltechnologe/in", 56000), ("Chemie und Pharmatechnologe/in", 62000), ("Laborant/in", 60000),
         ("Chemiker/in", 100000), ("Biologe/in", 85000), ("Regulatory Affairs Spezialist/in", 105000),
         ("Pharmaberater/in", 100000), ("Uhrmacher/in", 58000), ("Feinwerkoptiker/in", 58000),
+        ("Teamleiter/in Produktion", 85000), ("Teamleiter/in Einkauf", 95000), ("Teamleiter/in Technik", 90000),
+        ("Teamleiter/in Qualität", 92000), ("Abteilungsleiter/in Einkauf", 115000),
     ],
     "Bau und Handwerk": [
         ("Maurer/in", 60000), ("Zimmermann/Zimmerin", 58000), ("Schreiner/in", 56000),
@@ -30,6 +32,7 @@ BERUFE = {
         ("Polier/in", 78000), ("Bauführer/in", 85000), ("Bauleiter/in", 90000), ("Architekt/in", 80000),
         ("Bauingenieur/in", 85000), ("Projektleiter/in Bau", 95000), ("Baumaschinenführer/in", 62000),
         ("Bauarbeiter/in", 54000), ("Glaser/in", 56000), ("Steinmetz/in", 56000),
+        ("Teamleiter/in Gebäudetechnik", 85000),
     ],
     "Automobil": [
         ("Automobil Mechatroniker/in", 58000), ("Automobil Fachmann/Fachfrau", 54000),
@@ -46,6 +49,7 @@ BERUFE = {
         ("Scrum Master", 98000), ("IT Leiter/in", 120000), ("Mediamatiker/in", 58000),
         ("SAP Berater/in", 105000), ("Cloud Engineer", 100000), ("Webentwickler/in", 80000),
         ("Datenbankadministrator/in", 90000), ("Software Tester/in", 80000),
+        ("Teamleiter/in IT", 115000), ("Teamleiter/in Software Entwicklung", 120000),
     ],
     "Dienstleistung": [
         ("Sachbearbeiter/in kaufmännisch", 62000), ("Kaufmann/Kauffrau EFZ", 56000), ("Buchhalter/in", 70000),
@@ -59,6 +63,9 @@ BERUFE = {
         ("Marketing Manager/in", 95000), ("Social Media Manager/in", 72000), ("Kommunikationsfachperson", 78000),
         ("Eventmanager/in", 70000), ("Immobilienbewirtschafter/in", 78000), ("Immobilienvermarkter/in", 80000),
         ("Unternehmensberater/in", 110000), ("Callcenter Agent/in", 52000), ("Kundendienst Mitarbeiter/in", 56000),
+        ("Teamleiter/in", 90000), ("Teamleiter/in Kundendienst", 78000), ("Teamleiter/in Finanzen", 105000),
+        ("Teamleiter/in HR", 100000), ("Teamleiter/in Marketing", 100000), ("Teamleiter/in Verkaufsinnendienst", 88000),
+        ("Abteilungsleiter/in", 115000), ("Bereichsleiter/in", 135000),
     ],
     "Handel": [
         ("Detailhandelsfachperson", 50000), ("Detailhandelsassistent/in", 46000), ("Verkäufer/in", 48000),
@@ -66,6 +73,7 @@ BERUFE = {
         ("Category Manager/in", 95000), ("Key Account Manager/in", 100000), ("Aussendienstmitarbeiter/in", 80000),
         ("Verkaufsinnendienst", 62000), ("Verkaufsleiter/in", 115000), ("Kundenberater/in", 60000),
         ("Onlineshop Manager/in", 78000), ("Einkäufer/in Detailhandel", 80000), ("Visual Merchandiser", 58000),
+        ("Teamleiter/in Verkauf", 80000), ("Teamleiter/in Aussendienst", 105000),
     ],
     "Logistik": [
         ("Logistiker/in", 56000), ("Lagermitarbeiter/in", 50000), ("Lagerleiter/in", 78000),
@@ -74,6 +82,7 @@ BERUFE = {
         ("Disponent/in Transport", 66000), ("Lokführer/in", 80000), ("Buschauffeur/in", 64000),
         ("Tramchauffeur/in", 64000), ("Pilot/in", 120000), ("Flugbegleiter/in", 52000),
         ("Pöstler/in", 52000), ("Kurier/in", 46000), ("Staplerfahrer/in", 52000), ("Taxifahrer/in", 46000),
+        ("Teamleiter/in Logistik", 75000), ("Teamleiter/in Lager", 70000), ("Teamleiter/in Disposition", 82000),
     ],
     "Gesundheit": [
         ("Pflegefachperson", 72000), ("Fachperson Gesundheit (FaGe)", 56000), ("Pflegehelfer/in", 46000),
@@ -86,6 +95,7 @@ BERUFE = {
         ("Biomedizinische Analytiker/in", 70000), ("Fachperson Operationstechnik", 72000),
         ("Radiologiefachperson", 75000), ("Optiker/in", 60000), ("Ernährungsberater/in", 72000),
         ("Logopäde/Logopädin", 85000), ("Fachperson Langzeitpflege", 54000),
+        ("Teamleiter/in Pflege", 90000), ("Teamleiter/in Therapie", 90000),
     ],
     "Bildung und Soziales": [
         ("Kindergartenlehrperson", 82000), ("Primarlehrer/in", 88000), ("Lehrperson Sekundarstufe", 98000),
@@ -94,6 +104,7 @@ BERUFE = {
         ("Fachperson Betreuung Kinder (FaBe)", 52000), ("Fachperson Betreuung Betagte", 54000),
         ("Kita Leiter/in", 75000), ("Sozialarbeiter/in", 85000), ("Sozialpädagoge/Sozialpädagogin", 82000),
         ("Berufsberater/in", 95000), ("Klassenassistent/in", 48000), ("Jugendarbeiter/in", 72000),
+        ("Teamleiter/in Sozialdienst", 100000), ("Teamleiter/in Betreuung", 78000),
     ],
     "Gastronomie und Tourismus": [
         ("Koch/Köchin", 52000), ("Küchenchef/in", 72000), ("Servicefachangestellte/r", 48000),
@@ -101,6 +112,7 @@ BERUFE = {
         ("Rezeptionist/in", 52000), ("Hotelmanager/in", 100000), ("Reiseberater/in", 56000),
         ("Bäcker/in Konditor/in", 52000), ("Metzger/in", 55000), ("Fachmann/Fachfrau Systemgastronomie", 50000),
         ("Küchenhilfe", 44000), ("Confiseur/in", 52000),
+        ("Teamleiter/in Service", 60000), ("Chef de Partie", 56000),
     ],
     "Banken und Versicherungen": [
         ("Kundenberater/in Bank", 80000), ("Private Banker", 130000), ("Kreditspezialist/in", 95000),
@@ -108,12 +120,14 @@ BERUFE = {
         ("Portfolio Manager/in", 140000), ("Versicherungsberater/in", 75000), ("Schadeninspektor/in", 85000),
         ("Underwriter/in", 100000), ("Aktuar/in", 120000), ("Sachbearbeiter/in Versicherung", 68000),
         ("Sachbearbeiter/in Bank", 70000), ("Hypothekarberater/in", 95000), ("Finanzplaner/in", 100000),
+        ("Teamleiter/in Bank", 115000), ("Teamleiter/in Versicherung", 105000),
     ],
     "Öffentliche Verwaltung": [
         ("Verwaltungsangestellte/r", 66000), ("Gemeindeschreiber/in", 105000), ("Polizist/in", 82000),
         ("Fachspezialist/in Zoll und Grenzsicherheit", 80000), ("Berufsfeuerwehrmann/frau", 80000),
         ("Steuerkommissär/in", 85000), ("Sachbearbeiter/in Sozialversicherung", 68000),
         ("Berufsmilitär", 80000), ("Sachbearbeiter/in Einwohnerdienste", 64000), ("Richter/in", 160000),
+        ("Teamleiter/in Verwaltung", 100000), ("Abteilungsleiter/in Verwaltung", 125000),
     ],
     "Kunst, Medien und Design": [
         ("Grafiker/in", 62000), ("Polygraf/in", 56000), ("Fotograf/in", 56000), ("Journalist/in", 80000),
@@ -136,6 +150,7 @@ BERUFE = {
     "Sicherheit und Reinigung": [
         ("Sicherheitsmitarbeiter/in", 56000), ("Reinigungsfachkraft", 44000), ("Hauswart/in", 58000),
         ("Fachmann/Fachfrau Betriebsunterhalt", 56000), ("Leiter/in Facility Management", 95000),
+        ("Teamleiter/in Reinigung", 62000), ("Teamleiter/in Sicherheit", 72000),
     ],
 }
 
