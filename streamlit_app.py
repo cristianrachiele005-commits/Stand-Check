@@ -537,10 +537,7 @@ with st.container(key="card_eingaben"):
         eigener_beruf_an = st.session_state.get("eigener_beruf_an", False)
         j1, j2, j3, j0 = st.columns(4, gap="medium")
         with j1:
-            branche_wahl = st.selectbox(
-                "Branche", [ALLE_BRANCHEN] + BRANCHEN, key="branche_wahl",
-                format_func=lambda b: f"{b} ({len(ALLE_BERUFE)} Berufe)" if b == ALLE_BRANCHEN
-                else f"{b} ({len(BERUFE[b])})")
+            branche_wahl = st.selectbox("Branche", [ALLE_BRANCHEN] + BRANCHEN, key="branche_wahl")
         with j2:
             if eigener_beruf_an:
                 eigener_beruf = st.text_input("Dein Beruf", key="eigener_beruf", placeholder="z.B. Orgelbauer/in")
